@@ -160,6 +160,9 @@ def get_artwork(artist, album):
                 return r["artworkUrl100"].replace("100x100bb", "600x600bb")
         if results:
             return results[0]["artworkUrl100"].replace("100x100bb", "600x600bb")
+    except Exception:
+        return None
+    return None
                 
 
 # ----------------------------------------------------------------------------
