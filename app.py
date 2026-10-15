@@ -195,6 +195,9 @@ def main():
     if "query" not in st.session_state:
         st.session_state.query = ""
 
+    def set_query(q):
+        st.session_state.query = q
+
     search_col, pool_col, n_col = st.columns([3, 1.4, 1])
     with search_col:
         st.text_input("Pick an album from the crates", key="query",
@@ -209,15 +212,9 @@ def main():
     if not query:
         st.markdown("**Not sure where to start?**")
         b1, b2, b3 = st.columns(3)
-        if b1.button("\U0001f3ba Voodoo — D'Angelo", use_container_width=True):
-            st.session_state.query = "Voodoo"
-            st.rerun()
-        if b2.button("\U0001f3ba Baduizm — Erykah Badu", use_container_width=True):
-            st.session_state.query = "Baduizm"
-            st.rerun()
-        if b3.button("\U0001f3ba To Pimp a Butterfly", use_container_width=True):
-            st.session_state.query = "To Pimp a Butterfly"
-            st.rerun()
+        b1.button("\U0001f3ba Voodoo — D'Angelo", use_container_width=True, on_click=set_query, args=("Voodoo",))
+        b2.button("\U0001f3ba Baduizm — Erykah Badu", use_container_width=True, on_click=set_query, args=("Baduizm",))
+        b3.button("\U0001f3ba To Pimp a Butterfly", use_container_width=True, on_click=set_query, args=("To Pimp a Butterfly",))
         st.stop()
 
     df, similarity = build_model()
