@@ -151,7 +151,7 @@ def get_artwork(artist, album):
             timeout=8,
         )
         results = resp.json().get("results", [])
-                for r in results:  # prefer an exact title + artist match
+        for r in results:  # prefer an exact title + artist match
             if (r.get("collectionName", "").lower() == album.lower()
                     and artist.lower() in r.get("artistName", "").lower()):
                 return r["artworkUrl100"].replace("100x100bb", "600x600bb")
@@ -160,6 +160,7 @@ def get_artwork(artist, album):
                 return r["artworkUrl100"].replace("100x100bb", "600x600bb")
         if results:
             return results[0]["artworkUrl100"].replace("100x100bb", "600x600bb")
+                
 
 # ----------------------------------------------------------------------------
 # 4. UI
