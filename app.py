@@ -352,6 +352,8 @@ def main():
         st.stop()
 
     st.markdown(f"### Because you like *{anchor['album']}* — {anchor['artist']}")
+    loc = "in your crate" if anchor["source"] == "my_crate" else "in the Apple 100"
+    st.success(f"100% match · {loc}")
     st.caption(f"pool: {pool} · {len(df)} albums indexed")
 
     cols = st.columns(min(n, 5))
