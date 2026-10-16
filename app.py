@@ -213,7 +213,7 @@ def build_model():
     vectorizer = TfidfVectorizer(tokenizer=tokenize, token_pattern=None)
     vectors = vectorizer.fit_transform(df["text"])
     similarity = cosine_similarity(vectors)
-    return df, similarity
+    return df, similarity, vectorizer, vectors
 
 
 def _prefer_my_crate(df, indices):
@@ -316,8 +316,8 @@ def taste_score(user_df, apple_df):
     cols = {str(c).lower().strip(): c for c in user_df.columns}
     a_col, t_col = cols.get("artist"), cols.get("title")
     if not a_col or not t_col:
-        return 0, [], 0, ("Couldn't find Artist and Title columns. "
-                          "Export your Discogs collection as CSV and upload that file.")
+        return 0, [], [], 0, ("Couldn't find Artist and Title columns. "
+                             "Export your Discogs collection as CSV and upload that file.")
     seen, mine = set(), []
     for _, r in user_df.iterrows():
         key = (_norm_artist(r[a_col]), _norm_title(r[t_col]))
@@ -326,14 +326,31 @@ def taste_score(user_df, apple_df):
             mine.append((str(r[a_col]).strip(), str(r[t_col]).strip(), key))
     apple = [(_norm_artist(a), _norm_title(al))
              for a, al in zip(apple_df["artist"], apple_df["album"])]
-    matched = []
+    matched, unmatched = [], []
     for oa, ot, (ua, ut) in mine:
-        for aa, at in apple:
-            if ut == at and (ua in aa or aa in ua):
-                matched.append((oa, ot))
-                break
+        hit = any(ut == at and (ua in aa or aa in ua) for aa, at in apple)
+        (matched if hit else unmatched).append((oa, ot))
     pct = round(len(matched) / len(mine) * 100, 1) if mine else 0
-    return pct, matched, len(mine), None
+    return pct, matched, unmatched, len(mine), None
+
+
+def blind_spots(unmatched, df, vectorizer, vectors):
+    """For each user album missing from the Apple 100, find its closest
+    canon cousin using the recommendation engine."""
+    apple_pos = df.index[df["source"] == "apple_100"].tolist()
+    apple_vecs = vectors[apple_pos]
+    tag_lookup = {(_norm_artist(r["artist"]), _norm_title(r["album"])): r["tags"]
+                  for _, r in df.iterrows()}
+    out = []
+    for oa, ot in unmatched:
+        key = (_norm_artist(oa), _norm_title(ot))
+        text = f"{oa} {ot} {(tag_lookup.get(key, '') + ' ') * 2}".lower()
+        sims = cosine_similarity(vectorizer.transform([text]), apple_vecs)[0]
+        best = apple_pos[int(sims.argmax())]
+        out.append((oa, ot, df.at[best, "artist"], df.at[best, "album"],
+                    round(float(sims.max()) * 100, 1)))
+    out.sort(key=lambda x: x[4], reverse=True)
+    return out
 
 # ----------------------------------------------------------------------------
 # 5. UI
@@ -389,7 +406,7 @@ def main():
             b2.button("🎺 Baduizm — Erykah Badu", use_container_width=True, on_click=set_query, args=("Baduizm",))
             b3.button("🎺 To Pimp a Butterfly", use_container_width=True, on_click=set_query, args=("To Pimp a Butterfly",))
         else:
-            df, similarity = build_model()
+            df, similarity, _, _ = build_model()
             try:
                 anchor, recs = recommend(df, similarity, query, n=n, pool=pool)
             except ValueError as e:
@@ -436,14 +453,25 @@ def main():
             except Exception:
                 st.error("Couldn't read that file. Export your Discogs collection as CSV and try again.")
             else:
-                full_df = load_data()
-                apple_df = full_df[full_df["source"] == "apple_100"]
-                pct, matched, total, err = taste_score(user_df, apple_df)
+                df, similarity, vectorizer, vectors = build_model()
+                apple_df = df[df["source"] == "apple_100"]
+                pct, matched, unmatched, total, err = taste_score(user_df, apple_df)
                 if err:
                     st.warning(err)
                 elif total == 0:
                     st.warning("No albums found in that file.")
                 else:
+                    if pct >= 40:
+                        archetype = "Canon Keeper"
+                        tagline = "Your shelves mirror the canon. You and Apple agree."
+                    elif pct >= 15:
+                        archetype = "Bridge Builder"
+                        tagline = "Canon roots, digger branches. You live in both worlds."
+                    else:
+                        archetype = "Crate Digger"
+                        tagline = "Your ears go where lists don't. The canon hasn't caught up to you."
+                    st.markdown(f"## {archetype}")
+                    st.write(tagline)
                     st.metric("Taste Score", f"{pct}%")
                     st.progress(int(pct))
                     st.write(f"**{len(matched)}** of your **{total}** albums are on the Apple 100.")
@@ -451,6 +479,11 @@ def main():
                         with st.expander("See which ones made it"):
                             for a, t in matched:
                                 st.write(f"· *{t}* — {a}")
+                    if unmatched:
+                        spots = blind_spots(unmatched, df, vectorizer, vectors)[:5]
+                        with st.expander("Canon blind spots: Apple slept on these"):
+                            for oa, ot, ca, ct, s in spots:
+                                st.write(f"Your *{ot}* → closest canon cousin: *{ct}* ({s}%)")
 
     st.markdown("---")
     st.caption("Built with scikit-learn · TF-IDF + cosine similarity · artwork via the iTunes Search API")
