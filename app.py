@@ -88,7 +88,7 @@ def load_data():
         {"artist": "Earl Sweatshirt", "album": "Some Rap Songs", "tags": "hip-hop abstract lo-fi fragmented introspective", "source": "my_crate"},
         {"artist": "Curren$y", "album": "Continuance", "tags": "hip-hop southern smooth laid-back hustle", "source": "my_crate"},
         {"artist": "SZA", "album": "Ctrl", "tags": "alt-r&b confessional vulnerable 2010s", "source": "my_crate"},
-        # ---------------- apple_100 (88) ----------------
+        # ---------------- apple_100 (100) ----------------
         {"artist": "Lauryn Hill", "album": "The Miseducation of Lauryn Hill", "tags": "neo-soul hip-hop r&b conscious soulful", "source": "apple_100"},
         {"artist": "The Beatles", "album": "Abbey Road", "tags": "rock pop 60s melodic timeless", "source": "apple_100"},
         {"artist": "Prince & The Revolution", "album": "Purple Rain", "tags": "funk rock pop 80s electric", "source": "apple_100"},
@@ -176,7 +176,19 @@ def load_data():
         {"artist": "Travis Scott", "album": "Astroworld", "tags": "hip-hop trap psychedelic auto-tune", "source": "apple_100"},
         {"artist": "Eagles", "album": "Hotel California", "tags": "rock 70s california harmony", "source": "apple_100"},
         {"artist": "Robyn", "album": "Body Talk", "tags": "pop electronic dance swedish", "source": "apple_100"},
-        {"artist": "Prince", "album": "Purple Rain", "tags": "funk pop rock 80s guitar anthemic", "source": "apple_100"},
+        {"artist": "Michael Jackson", "album": "Thriller", "tags": "pop funk r&b 80s blockbuster dance", "source": "apple_100"},
+        {"artist": "Frank Ocean", "album": "Blonde", "tags": "alt-r&b minimal introspective sparse", "source": "apple_100"},
+        {"artist": "Kendrick Lamar", "album": "Good Kid, M.A.A.D City", "tags": "hip-hop west-coast narrative coming-of-age", "source": "apple_100"},
+        {"artist": "Nirvana", "album": "Nevermind", "tags": "grunge rock raw 90s anthemic", "source": "apple_100"},
+        {"artist": "Marvin Gaye", "album": "What's Going On", "tags": "soul smooth conscious warm classic", "source": "apple_100"},
+        {"artist": "Miles Davis", "album": "Kind of Blue", "tags": "jazz modal trumpet calm landmark", "source": "apple_100"},
+        {"artist": "Drake", "album": "Take Care", "tags": "hip-hop r&b moody nocturnal introspective", "source": "apple_100"},
+        {"artist": "Prince", "album": "Sign o' the Times", "tags": "funk pop rock 80s double-album visionary", "source": "apple_100"},
+        {"artist": "John Coltrane", "album": "A Love Supreme", "tags": "jazz spiritual saxophone intense suite", "source": "apple_100"},
+        {"artist": "D'Angelo", "album": "Voodoo", "tags": "neo-soul funk raw groove deep", "source": "apple_100"},
+        {"artist": "Erykah Badu", "album": "Baduizm", "tags": "neo-soul jazzy sultry smooth debut", "source": "apple_100"},
+        {"artist": "SZA", "album": "SOS", "tags": "r&b alt confessional sprawling", "source": "apple_100"},
+        {"artist": "Solange", "album": "A Seat at the Table", "tags": "r&b art meditative minimal", "source": "apple_100"},
     ])
 
 
@@ -245,7 +257,12 @@ def recommend(df, similarity, album, n=5, pool="both"):
         mask &= df["source"] == pool
     out = df.loc[mask, ["artist", "album", "source", "tags"]].copy()
     out["match"] = (similarity[idx, mask.values] * 100).round(1)
-    out = out.sort_values("match", ascending=False).head(n).reset_index(drop=True)
+    # one row per album: albums in both pools appear once, preferring my_crate
+    out["_key"] = out["artist"].str.lower() + "||" + out["album"].str.lower()
+    out["_crate"] = (out["source"] == "my_crate").astype(int)
+    out = out.sort_values(["match", "_crate"], ascending=[False, False])
+    out = out.drop_duplicates(subset=["_key"], keep="first")
+    out = out.drop(columns=["_key", "_crate"]).head(n).reset_index(drop=True)
     return anchor, out
 
 
