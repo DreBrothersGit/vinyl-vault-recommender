@@ -293,10 +293,53 @@ def get_artwork(artist, album):
     return None
 
 # ----------------------------------------------------------------------------
-# 4. UI
+# 4. TASTE SCORE — how much of a user's Discogs crate is on the Apple 100
+# ----------------------------------------------------------------------------
+def _norm_title(t):
+    t = str(t).lower()
+    t = re.sub(r"\(.*?\)", "", t)   # drop "(Deluxe Edition)" etc.
+    t = re.sub(r"\[.*?\]", "", t)   # drop "[180g]" etc.
+    t = re.sub(r"[^a-z0-9 ]", "", t)
+    return re.sub(r"\s+", " ", t).strip()
+
+
+def _norm_artist(a):
+    a = str(a).lower()
+    a = re.sub(r"\(.*?\)", "", a)
+    a = re.sub(r"[^a-z0-9 ]", "", a)
+    return re.sub(r"\s+", " ", a).strip()
+
+
+def taste_score(user_df, apple_df):
+    """Compare a Discogs CSV crate to the Apple 100.
+    Returns (pct, matched, total, err) — matched is a list of (artist, album)."""
+    cols = {str(c).lower().strip(): c for c in user_df.columns}
+    a_col, t_col = cols.get("artist"), cols.get("title")
+    if not a_col or not t_col:
+        return 0, [], 0, ("Couldn't find Artist and Title columns. "
+                          "Export your Discogs collection as CSV and upload that file.")
+    seen, mine = set(), []
+    for _, r in user_df.iterrows():
+        key = (_norm_artist(r[a_col]), _norm_title(r[t_col]))
+        if key[1] and key not in seen:
+            seen.add(key)
+            mine.append((str(r[a_col]).strip(), str(r[t_col]).strip(), key))
+    apple = [(_norm_artist(a), _norm_title(al))
+             for a, al in zip(apple_df["artist"], apple_df["album"])]
+    matched = []
+    for oa, ot, (ua, ut) in mine:
+        for aa, at in apple:
+            if ut == at and (ua in aa or aa in ua):
+                matched.append((oa, ot))
+                break
+    pct = round(len(matched) / len(mine) * 100, 1) if mine else 0
+    return pct, matched, len(mine), None
+
+# ----------------------------------------------------------------------------
+# 5. UI
 # ----------------------------------------------------------------------------
 def main():
-    st.set_page_config(page_title="Vinyl Vault", page_icon="\U0001f3ba", layout="wide")
+    st.set_page_config(page_title="Vinyl Vault", page_icon="🎺", layout="wide")
 
     st.markdown("""
     <style>
@@ -315,7 +358,7 @@ def main():
     </style>
     """, unsafe_allow_html=True)
 
-    st.markdown('<p class="vault-title">\U0001f3ba VINYL VAULT</p>', unsafe_allow_html=True)
+    st.markdown('<p class="vault-title">🎺 VINYL VAULT</p>', unsafe_allow_html=True)
     st.markdown('<p class="vault-sub">a recommendation engine trained on my record collection</p>',
                 unsafe_allow_html=True)
 
@@ -325,52 +368,93 @@ def main():
     def set_query(q):
         st.session_state.query = q
 
-    search_col, pool_col, n_col = st.columns([3, 1.4, 1])
-    with search_col:
-        st.text_input("Pick an album from the crates", key="query",
-                      placeholder='Try "Voodoo"...')
-    with pool_col:
-        pool = st.selectbox("Pool", ["both", "my_crate", "apple_100"])
-    with n_col:
-        n = st.slider("Results", 3, 10, 5)
+    tab1, tab2 = st.tabs(["🎧 Recommend", "💯 Taste Score"])
 
-    query = st.session_state.query.strip()
+    with tab1:
+        search_col, pool_col, n_col = st.columns([3, 1.4, 1])
+        with search_col:
+            st.text_input("Pick an album from the crates", key="query",
+                          placeholder='Try "Voodoo"...')
+        with pool_col:
+            pool = st.selectbox("Pool", ["both", "my_crate", "apple_100"])
+        with n_col:
+            n = st.slider("Results", 3, 10, 5)
 
-    if not query:
-        st.markdown("**Not sure where to start?**")
-        b1, b2, b3 = st.columns(3)
-        b1.button("\U0001f3ba Voodoo — D'Angelo", use_container_width=True, on_click=set_query, args=("Voodoo",))
-        b2.button("\U0001f3ba Baduizm — Erykah Badu", use_container_width=True, on_click=set_query, args=("Baduizm",))
-        b3.button("\U0001f3ba To Pimp a Butterfly", use_container_width=True, on_click=set_query, args=("To Pimp a Butterfly",))
-        st.stop()
+        query = st.session_state.query.strip()
 
-    df, similarity = build_model()
-    try:
-        anchor, recs = recommend(df, similarity, query, n=n, pool=pool)
-    except ValueError as e:
-        st.warning(str(e))
-        st.stop()
-
-    st.markdown(f"### Because you like *{anchor['album']}* — {anchor['artist']}")
-    loc = "in your crate" if anchor["source"] == "my_crate" else "in the Apple 100"
-    st.success(f"100% match · {loc}")
-    st.caption(f"pool: {pool} · {len(df)} albums indexed")
-
-    cols = st.columns(min(n, 5))
-    for i, (_, row) in enumerate(recs.iterrows()):
-        with cols[i % len(cols)]:
-            art = get_artwork(row["artist"], row["album"])
-            if art:
-                st.image(art, use_container_width=True)
+        if not query:
+            st.markdown("**Not sure where to start?**")
+            b1, b2, b3 = st.columns(3)
+            b1.button("🎺 Voodoo — D'Angelo", use_container_width=True, on_click=set_query, args=("Voodoo",))
+            b2.button("🎺 Baduizm — Erykah Badu", use_container_width=True, on_click=set_query, args=("Baduizm",))
+            b3.button("🎺 To Pimp a Butterfly", use_container_width=True, on_click=set_query, args=("To Pimp a Butterfly",))
+        else:
+            df, similarity = build_model()
+            try:
+                anchor, recs = recommend(df, similarity, query, n=n, pool=pool)
+            except ValueError as e:
+                st.warning(str(e))
             else:
-                st.markdown('<div class="no-art">\U0001f3b5</div>', unsafe_allow_html=True)
-            st.markdown(f'<p class="card-album">{row["album"]}</p>', unsafe_allow_html=True)
-            st.markdown(f'<p class="card-artist">{row["artist"]}</p>', unsafe_allow_html=True)
-            st.progress(int(row["match"]))
-            st.caption(f'{row["match"]}% match · {row["tags"]}')
+                # your pick: cover, a full 100% bar, and where it lives
+                loc = "in your crate" if anchor["source"] == "my_crate" else "in the Apple 100"
+                ac1, ac2 = st.columns([1, 2.2])
+                with ac1:
+                    art = get_artwork(anchor["artist"], anchor["album"])
+                    if art:
+                        st.image(art, use_container_width=True)
+                    else:
+                        st.markdown('<div class="no-art">🎵</div>', unsafe_allow_html=True)
+                with ac2:
+                    st.markdown(f'<p class="card-album">{anchor["album"]}</p>', unsafe_allow_html=True)
+                    st.markdown(f'<p class="card-artist">{anchor["artist"]}</p>', unsafe_allow_html=True)
+                    st.progress(100)
+                    st.caption(f"100% match · {loc}")
+                st.markdown(f"#### Because you like *{anchor['album']}*")
+                st.caption(f"pool: {pool} · {len(df)} albums indexed")
+
+                cols = st.columns(min(n, 5))
+                for i, (_, row) in enumerate(recs.iterrows()):
+                    with cols[i % len(cols)]:
+                        art = get_artwork(row["artist"], row["album"])
+                        if art:
+                            st.image(art, use_container_width=True)
+                        else:
+                            st.markdown('<div class="no-art">🎵</div>', unsafe_allow_html=True)
+                        st.markdown(f'<p class="card-album">{row["album"]}</p>', unsafe_allow_html=True)
+                        st.markdown(f'<p class="card-artist">{row["artist"]}</p>', unsafe_allow_html=True)
+                        st.progress(int(row["match"]))
+                        st.caption(f'{row["match"]}% match · {row["tags"]}')
+
+    with tab2:
+        st.markdown("### What's your Taste Score?")
+        st.write("Upload your Discogs collection export (CSV). "
+                 "We'll check how many of your records made Apple's 100 Best Albums.")
+        up = st.file_uploader("Discogs collection CSV", type=["csv"])
+        if up is not None:
+            try:
+                user_df = pd.read_csv(up)
+            except Exception:
+                st.error("Couldn't read that file. Export your Discogs collection as CSV and try again.")
+            else:
+                full_df = load_data()
+                apple_df = full_df[full_df["source"] == "apple_100"]
+                pct, matched, total, err = taste_score(user_df, apple_df)
+                if err:
+                    st.warning(err)
+                elif total == 0:
+                    st.warning("No albums found in that file.")
+                else:
+                    st.metric("Taste Score", f"{pct}%")
+                    st.progress(int(pct))
+                    st.write(f"**{len(matched)}** of your **{total}** albums are on the Apple 100.")
+                    if matched:
+                        with st.expander("See which ones made it"):
+                            for a, t in matched:
+                                st.write(f"· *{t}* — {a}")
 
     st.markdown("---")
     st.caption("Built with scikit-learn · TF-IDF + cosine similarity · artwork via the iTunes Search API")
+
 
 
 if __name__ == "__main__":
